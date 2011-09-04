@@ -1,5 +1,5 @@
 /*******************************************************
- Copyright (C) <year> by <copyright holders>
+ Copyright (C) 2011 by panGenerator
  
  Permission is hereby granted, free of charge, to any person obtaining a copy
  of this software and associated documentation files (the "Software"), to deal
@@ -36,7 +36,7 @@
 #include <iostream>
 #include <bitset>
 
-#define PAD_COUNT 2
+#define PAD_COUNT 3
 
 /**
  * Specific for TOMee NES USB CONTROLLER. Change for Your device.
@@ -73,6 +73,7 @@ class HIDReceiverApp : public AppBasic {
 	void update();
 	void updateKeyStates();
 	void setPadKeyState( int pad , int key , bool isPressed );
+	bool getPadKeyState( int pad , int key );
 	void sendKeyStateAsOSCMessage(int pad , int key , bool isPressed );
 	void draw();
 	void int_bin(int f);
@@ -104,12 +105,21 @@ class HIDReceiverApp : public AppBasic {
 	 */
 	std::string oscHost;
 	int oscPort;
+	
+	/**
+	 * Determines how many times the program will try to reinitialize he HID input
+	 * if there's an read error - most commonly caused by disconnecting the device.
+	 */
+	int padReadErrorInitRetryCount;
+	int padReadErrorInitRetryLimit;
 };
 
 
 void HIDReceiverApp::setup(){
 	//__hidDEBUG();
 	
+	padReadErrorInitRetryCount = 0;
+	padReadErrorInitRetryLimit = 10;
 	initHIDPads();
 	
 	
@@ -124,7 +134,7 @@ void HIDReceiverApp::setup(){
  */
 void HIDReceiverApp::update(){	
 	updateKeyStates();
-	c = Color( padKeyStates[0][0]==true?1:0,padKeyStates[0][1]==true?1:0,padKeyStates[0][3]==true?1:0);
+	//c = Color( padKeyStates[0][0]==true?1:0,padKeyStates[0][1]==true?1:0,padKeyStates[0][3]==true?1:0);
 }
 
 /**
@@ -141,10 +151,15 @@ void HIDReceiverApp::updateKeyStates(){
 			int res = hid_read(handle, buf, sizeof(buf));
 			if (res == 0){
 				; //nop
-			}else if (res < 0){
-				printf("Unable to read()\n");			
+			}else if (res < 0 && padReadErrorInitRetryCount < padReadErrorInitRetryLimit ){
+				printf("Unable to read() - will try to reinitialize \n");	
+				//sleep(1);
+				initHIDPads();
+				padReadErrorInitRetryCount++;
+			}else if(res < 0 && padReadErrorInitRetryCount < padReadErrorInitRetryLimit ){
+				printf( "Unable to read() - maximum reinitializaion atepmpts eceeeded. \n" );
 			}else{
-				
+				padReadErrorInitRetryCount = 0;
 				/**
 				 * Printing the lines below helps understand the code which is executed after
 				 */
@@ -165,11 +180,11 @@ void HIDReceiverApp::updateKeyStates(){
 				 */
 				//UP - DOWN
 				if( buf[1] == 0 ){	//0x00
-					console() << "Pad up pressed" << std::endl;
+					console() << "Pad #" << p << " [up] pressed" << std::endl;
 					setPadKeyState(p, PAD_KEY_UP, true);
 				}
 				else if( buf[1] == 255 ){	//0xFF
-					console() << "Pad down pressed" << std::endl;
+					console() << "Pad #" << p << " [down] pressed" << std::endl;
 					setPadKeyState(p, PAD_KEY_DOWN, true);
 				}
 				else{	//0xF0
@@ -179,11 +194,11 @@ void HIDReceiverApp::updateKeyStates(){
 				
 				//LEFT - RIGHT
 				if( buf[0] == 0 ){		//0x00
-					console() << "Pad up pressed" << std::endl;
+					console() << "Pad #" << p << " [left] pressed" << std::endl;
 					setPadKeyState(p, PAD_KEY_LEFT, true);
 				}
 				else if( buf[0] == 255 ){	//0xFF
-					console() << "Pad down pressed" << std::endl;
+					console() << "Pad #" << p << " [right] pressed" << std::endl;
 					setPadKeyState(p, PAD_KEY_RIGHT, true);
 				}
 				else{	//0xF0
@@ -193,15 +208,19 @@ void HIDReceiverApp::updateKeyStates(){
 				
 				//SELECT+START - can be pressed together => bit glueing
 				if( buf[4] == 1 ){	//0b01 (select)
+					console() << "Pad #" << p << " [select] pressed" << std::endl;
 					setPadKeyState(p, PAD_KEY_SELECT, true);
 					setPadKeyState(p, PAD_KEY_START, false);
 					
 				}
 				else if( buf[4] == 2 ){	//0b10 (start)
+					console() << "Pad #" << p << " [start] pressed" << std::endl;
 					setPadKeyState(p, PAD_KEY_SELECT, false);
 					setPadKeyState(p, PAD_KEY_START, true);
 				}
 				else if( buf[4] == 3 ){	 //0b11 (select+start)
+					console() << "Pad #" << p << " [select] pressed" << std::endl;
+					console() << "Pad #" << p << " [start] pressed" << std::endl;
 					setPadKeyState(p, PAD_KEY_SELECT, true);
 					setPadKeyState(p, PAD_KEY_START, true);
 				}
@@ -212,14 +231,18 @@ void HIDReceiverApp::updateKeyStates(){
 
 				//A+B - can be pressed together => bit glueing
 				if( buf[3] == 1 ){	//0b01 (select)
+					console() << "Pad #" << p << " [A] pressed" << std::endl;
 					setPadKeyState(p, PAD_KEY_A, true);
 					setPadKeyState(p, PAD_KEY_B, false);
 				}
 				else if( buf[3] == 2 ){	//0b10 (start)
+					console() << "Pad #" << p << " [B] pressed" << std::endl;					
 					setPadKeyState(p, PAD_KEY_A, false);					
 					setPadKeyState(p, PAD_KEY_B, true);
 				}
 				else if( buf[3] == 3 ){	 //0b11 (select+start)
+					console() << "Pad #" << p << " [A] pressed" << std::endl;
+					console() << "Pad #" << p << " [B] pressed" << std::endl;					
 					setPadKeyState(p, PAD_KEY_A, true);
 					setPadKeyState(p, PAD_KEY_B, true);
 				}
@@ -249,6 +272,15 @@ void HIDReceiverApp::setPadKeyState( int pad , int key , bool isPressed ){
 }
 
 /**
+ *
+ * @param	pad				pad id
+ * @param	key				Key id use the PAD_KEY_* constants 
+ */
+bool HIDReceiverApp::getPadKeyState( int pad , int key ){
+	return padKeyStates[pad][key];
+}
+
+/**
  * Send the key state as an OSC message
  * @param	pad				pad id
  * @param	key				Key id use the PAD_KEY_* constants
@@ -269,10 +301,51 @@ void HIDReceiverApp::sendKeyStateAsOSCMessage(int pad , int key , bool isPressed
 }
 
 /**
- * Heavy stuff!
  */
 void HIDReceiverApp::draw(){
-	gl::clear( c ); 
+	gl::clear( Color(0,0,0) ); 
+
+
+	for( int i  = 0 ; i < padsFoundCount ; i++ ){
+		float x = (1+i) * getWindowWidth()/(padsFoundCount+1);
+		float y = getWindowHeight()/2.0;
+		
+		Vec3f position = Vec3f(x,y,0);
+		Vec3f size = Vec3f(50,50,50);
+		
+		gl::color(1,1,1,0.5);
+		if( getPadKeyState(i, PAD_KEY_LEFT) ){
+			position.x -= size.x;
+		}
+		if( getPadKeyState(i, PAD_KEY_RIGHT) ){
+			position.x += size.x;
+		}
+		if( getPadKeyState(i, PAD_KEY_UP) ){
+			position.y -= size.y;
+		}
+		if( getPadKeyState(i, PAD_KEY_DOWN) ){
+			position.y += size.y;
+		}
+		if( getPadKeyState(i, PAD_KEY_SELECT) ){
+			gl::color(1,0,0);
+		}
+		if( getPadKeyState(i, PAD_KEY_START) ){
+			gl::color(0,1,0);
+		}		
+		if( getPadKeyState(i, PAD_KEY_A) ){
+			size *= 1.2;
+		}
+		if( getPadKeyState(i, PAD_KEY_B) ){
+			size *= 1.5;
+		}
+		
+		if( padReadErrorInitRetryCount > 0 ){
+			gl::drawStrokedCube( position , size );
+		}else{
+			gl::drawCube( position , size );		
+		}
+	}
+	
 }
 
 /**
